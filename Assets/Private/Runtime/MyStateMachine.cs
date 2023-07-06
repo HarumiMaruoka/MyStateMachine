@@ -118,15 +118,16 @@ public class MyStateMachineCondition
 {
     [SerializeField, SerializeReference]
     private bool[] _conditions;
-    [SerializeField]
+
     private int _size;
 
     public bool[] Conditions => _conditions;
 
     public int Size { get => _size; }
 
-    public void Setup(Type type)
+    public void Setup(Type type, int size)
     {
+        _size = size;
         var values = Enum.GetValues(type);
         _conditions = new bool[values.Length * values.Length];
         _size = values.Length;
@@ -175,7 +176,6 @@ public class MyStateMachineCondition
             {
                 line += $"{GetValue(i, j)}, ";
             }
-            //Debug.Log(line);
         }
     }
 }

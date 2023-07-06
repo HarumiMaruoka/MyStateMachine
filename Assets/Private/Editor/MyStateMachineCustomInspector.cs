@@ -9,216 +9,220 @@ public class MyStateMachineCustomInspector : Editor
 {
     private MyStateMachine _stateMachine = null;
 
-    private Type _previousStateType;
+    private Enum[] _enumValues = null;
+    private string[] _enumNames = null;
+    private int _enumLength = -1;
 
-    private int _initializeConditionsCount = 0;
+    private Type _previousStateType;
 
     private void OnEnable()
     {
         _stateMachine = target as MyStateMachine;
-        EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-    }
-    private void OnDisable()
-    {
-        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-    }
-    private void OnPlayModeStateChanged(PlayModeStateChange state)
-    {
-        if (state == PlayModeStateChange.EnteredEditMode)
+        if (_stateMachine != null && _stateMachine.CurrentState != null)
         {
-            _initializeConditionsCount = 0;
+            _previousStateType = _stateMachine.CurrentState.GetType();
+            EnumArraySetup();
         }
     }
-    Enum[] _enumValues = null;
     public override void OnInspectorGUI()
     {
-        // Current State の更新
+        // State Type の更新
+        // 実行中は変更不可
         serializedObject.Update();
-
         var currentState = serializedObject.FindProperty("_currentState");
+        EditorGUI.BeginDisabledGroup(EditorApplication.isPlaying);
         EditorGUILayout.PropertyField(currentState, new GUIContent("StateType"));
-
+        EditorGUI.EndDisabledGroup();
         serializedObject.ApplyModifiedProperties();
 
-        // EnumのArreyを作成する
-        if (_enumValues == null || _previousStateType != _stateMachine.CurrentState.GetType())
-        {
-            Array array = Enum.GetValues(_stateMachine.CurrentState.GetType());
-            _enumValues = new Enum[array.Length];
-            int counter = 0;
-            foreach (var e in array)
-            {
-                _enumValues[counter] = (Enum)e;
-                counter++;
-            }
-        }
 
         // 必要であれば、各自セットアップ処理を走らせる。
         if (_previousStateType != _stateMachine.CurrentState.GetType())
         {
-            if (_initializeConditionsCount > 0)
-            {
-                _stateMachine.Setup();
-                _stateMachine.Conditions.Setup(_stateMachine.CurrentState.GetType());
-            }
-            else
-            {
-                _initializeConditionsCount++;
-            }
+            EnumArraySetup();
+            _stateMachine.Setup();
+            _stateMachine.Conditions.Setup(_stateMachine.CurrentState.GetType(), _enumLength);
         }
-
         _previousStateType = _stateMachine.CurrentState.GetType();
 
-        ConditionDrawer(serializedObject.FindProperty("_conditions"),
-            _stateMachine.CurrentState.GetType(), _enumValues);
+        ConditionDrawer(serializedObject.FindProperty("_conditions"));
     }
 
-    // ===== 条件関連 ============================================================================================================== //
-    // ----- トグル関連の値 ----- //
-    private const float _toggleWidth = 16f;
-    private const float _toggleHeight = 16f;
+    private void EnumArraySetup()
+    {
+        Array array = Enum.GetValues(_stateMachine.CurrentState.GetType());
+        _enumValues = new Enum[array.Length];
+        _enumNames = new string[array.Length];
+        _enumLength = array.Length;
+        int counter = 0;
+        foreach (var e in array)
+        {
+            _enumValues[counter] = (Enum)e;
+            _enumNames[counter] = _enumValues[counter].ToString();
+            counter++;
+        }
+    }
 
-    private GUIStyle _toggleStyle = null;
-
-    private GUILayoutOption[] _toggleGuiOptions = new GUILayoutOption[2];
-
-    // ----- 上部ラベル関連の値 ----- //
-    private const float _topOuterLabelWidth = 16f;
-    private const float _topLabelHeight = 16f;
-
-    private GUILayoutOption[] _topLabelGuiOptions = new GUILayoutOption[2];
-
-    private const float _topInnerLabelWidth = 12.4f;
-
-    // ----- 左部ラベル関連の値 ----- //
-    private const float _labelWidth = 120f;
+    private InspectorLayoutOptions _inspectorLayoutOptions = new InspectorLayoutOptions();
 
     // 条件をグリッド状に表示する
-    private void ConditionDrawer(SerializedProperty conditions, Type type, Enum[] enumValues)
+    private void ConditionDrawer(SerializedProperty conditions)
     {
+        _inspectorLayoutOptions ??= new InspectorLayoutOptions(); // 謎のタイミングでインスタンスが破棄、あるいは参照が外れるので、そのための処理
         serializedObject.Update();
-        // 値のセットアップ
-        GUILayoutOption toggleWidthOption = GUILayout.Width(_toggleWidth);
-        GUILayoutOption toggleHeightOption = GUILayout.Height(_toggleHeight);
 
-        _toggleGuiOptions = new GUILayoutOption[2];
-        _toggleGuiOptions[0] = toggleWidthOption;
-        _toggleGuiOptions[1] = toggleHeightOption;
+        // 上部ラベルを表示する
+        DrawTopLabel();
 
-        GUILayoutOption topLabelWidthOption = GUILayout.Width(_topOuterLabelWidth);
-        GUILayoutOption topLabelHeightOption = GUILayout.Height(_topLabelHeight);
+        // 現在のステートを表示する
+        DrawCurrentState();
 
-        _topLabelGuiOptions = new GUILayoutOption[2];
-        _topLabelGuiOptions[0] = topLabelHeightOption;
-        _topLabelGuiOptions[1] = topLabelWidthOption;
+        // 左部ラベルとトグルの表示、更新処理を行う
+        DrawLeftLabelAndToggle(conditions);
 
-        _toggleStyle ??= new GUIStyle(GUI.skin.toggle);
-
-        GUILayoutOption labelWidthOption = GUILayout.Width(_labelWidth);
-
-        GUILayoutOption currentStateWidthOption = GUILayout.Width(15.68f);
-
-        // Enumに登録されたフィールドの名前をすべて取得する
-        Array typeValues = Enum.GetValues(type);
-        int typeLength = typeValues.Length;
-
-        string[] enumNames = new string[typeValues.Length];
-
-        for (int i = 0; i < typeLength; i++)
-        {
-            enumNames[i] = typeValues.GetValue(i).ToString();
-        }
-
-        // 上部ラベルの表示
-        using (new EditorGUILayout.HorizontalScope(topLabelWidthOption))
-        {
-            EditorGUILayout.LabelField("", labelWidthOption);
-            for (int i = 0; i < enumNames.Length; i++)
-            {
-                using (new EditorGUILayout.VerticalScope(topLabelHeightOption))
-                {
-                    for (int j = 0; j < enumNames[i].Length; j++)
-                    {
-                        EditorGUILayout.LabelField(enumNames[i][j].ToString(), GUILayout.Width(_topInnerLabelWidth));
-                    }
-                }
-            }
-        }
-
-        // 現在の状態を表示する
-        using (new EditorGUILayout.HorizontalScope(currentStateWidthOption))
-        {
-            EditorGUILayout.LabelField("Current State", labelWidthOption);
-            for (int i = 0; i < enumValues.Length; i++)
-            {
-                var value = false;
-                if (_stateMachine.CurrentState != null) value = _stateMachine.CurrentState.HasFlag(enumValues[i]);
-                EditorGUILayout.Toggle(value, _toggleStyle, currentStateWidthOption);
-            }
-        }
-
-        conditions.FindPropertyRelative("_size").intValue = typeLength;
-        // 左部ラベルとトグルを表示
-        using (new EditorGUILayout.VerticalScope())
-        {
-            for (int i = 0; i < typeLength; i++)
-            {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    EditorGUILayout.LabelField(enumNames[i], labelWidthOption);
-                    for (int j = 0; j < typeLength; j++)
-                    {
-                        if (i == j) { GUILayout.Space(_toggleWidth); continue; }
-
-                        int index = i * typeLength + j;
-
-                        try
-                        {
-                            ToggleUpdate(conditions.FindPropertyRelative("_conditions"), index);
-                        }
-                        catch (NullReferenceException)
-                        {
-                            return;
-                        }
-                    }
-                }
-            }
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Select All"))
-                {
-                    SetConditionsAll(
-                        conditions.FindPropertyRelative("_conditions"),
-                        enumNames.Length,
-                        true);
-                }
-                if (GUILayout.Button("Unselect All"))
-                {
-                    SetConditionsAll(
-                        conditions.FindPropertyRelative("_conditions"),
-                        enumNames.Length,
-                        false);
-                }
-            }
-        }
+        // 全てのトグルに対して共通の値を設定するボタンを表示、更新処理を行う
+        DrawSetConditionsAllButton(conditions);
 
         serializedObject.ApplyModifiedProperties();
     }
-    private void ToggleUpdate(SerializedProperty arrayProperty, int index)
+    private void DrawTopLabel()
     {
-        arrayProperty.GetArrayElementAtIndex(index).boolValue =
-            EditorGUILayout.Toggle(arrayProperty.GetArrayElementAtIndex(index).boolValue, _toggleStyle, _toggleGuiOptions);
-    }
-    private void SetConditionsAll(SerializedProperty arraySerializedProperty, int length, bool value)
-    {
-        for (int i = 0; i < length; i++)
+        // 上部ラベルの表示
+        using (new EditorGUILayout.HorizontalScope(_inspectorLayoutOptions.TopLabelOuterWidthOption))
         {
-            for (int j = 0; j < length; j++)
+            EditorGUILayout.LabelField("", _inspectorLayoutOptions.LeftLabelWidthOption);
+            for (int i = 0; i < _enumNames.Length; i++)
             {
-                int index = i * length + j;
+                using (new EditorGUILayout.VerticalScope(_inspectorLayoutOptions.TopLabelHeightOption))
+                {
+                    for (int j = 0; j < _enumNames[i].Length; j++)
+                    {
+                        EditorGUILayout.LabelField(_enumNames[i][j].ToString(), _inspectorLayoutOptions.TopLabelInnerWidthOption);
+                    }
+                }
+            }
+        }
+    }
+    /// <summary>
+    /// 現在の状態を表示する
+    /// </summary>
+    private void DrawCurrentState()
+    {
+        EditorGUI.BeginDisabledGroup(true); // 基本操作しないためインスペクタからの操作を無効にする。
+        using (new EditorGUILayout.HorizontalScope(_inspectorLayoutOptions.CurrentToggleStateWidthOption))
+        {
+            EditorGUILayout.LabelField("Current State", _inspectorLayoutOptions.LeftLabelWidthOption);
+            for (int i = 0; i < _enumValues.Length; i++)
+            {
+                var value = false;
+                if (_stateMachine.CurrentState != null) value = _stateMachine.CurrentState.HasFlag(_enumValues[i]);
+                EditorGUILayout.Toggle(value, _inspectorLayoutOptions.ToggleStyle, _inspectorLayoutOptions.CurrentToggleStateWidthOption);
+            }
+        }
+        EditorGUI.EndDisabledGroup();
+    }
+    /// <summary>
+    /// 左部ラベルとトグルの表示、更新処理を行う
+    /// </summary>
+    private void DrawLeftLabelAndToggle(SerializedProperty conditions)
+    {
+        EditorGUILayout.BeginVertical(); // 縦に並べる
+        for (int i = 0; i < _enumLength; i++)
+        {
+            EditorGUILayout.BeginHorizontal(); // 横に並べる
+            // 左部ラベルを表示する
+            EditorGUILayout.LabelField(_enumNames[i], _inspectorLayoutOptions.LeftLabelWidthOption);
+            // トグルを表示する
+            for (int j = 0; j < _enumLength; j++)
+            {
+                if (i == j) { GUILayout.Space(InspectorLayoutOptions._toggleWidth); continue; }
+
+                try
+                {
+                    int index = i * _enumLength + j;
+                    SerializedProperty property =
+                        conditions.FindPropertyRelative("_conditions").GetArrayElementAtIndex(index);
+
+                    property.boolValue =
+                        EditorGUILayout.Toggle(property.boolValue, _inspectorLayoutOptions.ToggleStyle,
+                        _inspectorLayoutOptions.ToggleWidthOption, _inspectorLayoutOptions.ToggleHeightOption);
+                }
+                catch (NullReferenceException)
+                {
+                    Debug.LogError("Error!");
+                    return;
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+        EditorGUILayout.EndVertical();
+    }
+    private void DrawSetConditionsAllButton(SerializedProperty conditions)
+
+    {// 全てのトグルに対して共通の値を設定する
+        EditorGUILayout.BeginHorizontal(); // 横に並べる
+        if (GUILayout.Button("Select All"))
+        {
+            // 全てのトグルを有効にする
+            SetConditionsAll(
+                conditions.FindPropertyRelative("_conditions"),
+                true);
+        }
+        if (GUILayout.Button("Unselect All"))
+        {
+            // 全てのトグルを無効にする
+            SetConditionsAll(
+                conditions.FindPropertyRelative("_conditions"),
+                false);
+        }
+        EditorGUILayout.EndHorizontal();
+    }
+    private void SetConditionsAll(SerializedProperty arraySerializedProperty, bool value)
+    {
+        for (int i = 0; i < _enumLength; i++)
+        {
+            for (int j = 0; j < _enumLength; j++)
+            {
+                int index = i * _enumLength + j;
                 arraySerializedProperty.GetArrayElementAtIndex(index).boolValue = value;
             }
         }
+    }
+    private class InspectorLayoutOptions
+    {
+        // ----- トグル関連の値 ----- //
+        public const float _toggleWidth = 16f;
+        public const float _toggleHeight = 16f;
+
+        private GUIStyle _toggleStyle;
+
+        // ----- 上部ラベル関連の値 ----- //
+        public const float _topOuterLabelWidth = 16f;
+        public const float _topLabelHeight = 16f;
+
+        public const float _topInnerLabelWidth = 12.4f;
+
+        // ----- 左部ラベル関連の値 ----- //
+        public const float _labelWidth = 120f;
+
+        // ----- カレントステートオプション ----- //
+        public const float _currentToggleStateWidth = 15.68f;
+
+        // ----- トグルオプション ----- //
+        public GUILayoutOption ToggleWidthOption => GUILayout.Width(_toggleWidth);
+        public GUILayoutOption ToggleHeightOption => GUILayout.Height(_toggleHeight);
+        public GUIStyle ToggleStyle => _toggleStyle ??= new GUIStyle(GUI.skin.toggle);
+
+        // ----- 上部ラベルオプション ----- //
+        public GUILayoutOption TopLabelOuterWidthOption => GUILayout.Width(_topOuterLabelWidth);
+        public GUILayoutOption TopLabelInnerWidthOption => GUILayout.Width(_topInnerLabelWidth);
+        public GUILayoutOption TopLabelHeightOption => GUILayout.Height(_topLabelHeight);
+
+        // ----- 上部ラベルオプション ----- //
+        public GUILayoutOption LeftLabelWidthOption => GUILayout.Width(_labelWidth);
+
+        // ----- カレントステートオプション ----- //
+        public GUILayoutOption CurrentToggleStateWidthOption => GUILayout.Width(_currentToggleStateWidth);
     }
 }
 [Flags, Serializable]
